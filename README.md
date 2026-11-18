@@ -55,7 +55,7 @@ PERSON, EMAIL_ADDRESS, PHONE_NUMBER, ADDRESS, DATE_OF_BIRTH, IBAN_CODE, CREDIT_C
 | tabularisai/eu-pii-safeguard | 0.788 | 0.892 | 0.539 |
 | Presidio 2.2.366, German recognizers only | 0.348 | 0.970 | 0.474 |
 
-All rows except Presidio come from `evaluate.py` in this repository.
+All rows except Presidio are reproducible with `evaluate.py` in this repository. The chart shows the numbers from the model cards, which merge adjacent spans slightly differently (tarn-large strict F1 0.992 there).
 
 Masked recall counts a personal value as found when any predicted span overlaps it. Strict F1 requires exact spans and labels, so it penalizes models that lack some of our labels. The benchmark is synthetic: document types, writer and name pool are unseen in training, but the identifier values come from the same generators as the training data. Real documents will score lower, so test on a sample of your own data.
 
