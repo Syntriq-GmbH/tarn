@@ -1,0 +1,35 @@
+nlp_engine_name: transformers
+models:
+  - lang_code: de
+    model_name:
+      spacy: de_core_news_sm
+      transformers: syntriq/tarn-german-pii-base
+
+ner_model_configuration:
+  labels_to_ignore:
+    - O
+  aggregation_strategy: simple
+  stride: 16
+  alignment_mode: expand
+  model_to_presidio_entity_mapping:
+    PERSON: PERSON
+    EMAIL_ADDRESS: EMAIL_ADDRESS
+    PHONE_NUMBER: PHONE_NUMBER
+    ADDRESS: LOCATION
+    DATE_OF_BIRTH: DATE_OF_BIRTH
+    IBAN_CODE: IBAN_CODE
+    CREDIT_CARD: CREDIT_CARD
+    IP_ADDRESS: IP_ADDRESS
+    CUSTOMER_ID: CUSTOMER_ID
+    DE_TAX_ID: DE_TAX_ID
+    DE_TAX_NUMBER: DE_TAX_NUMBER
+    DE_SOCIAL_SECURITY: DE_SOCIAL_SECURITY
+    DE_HEALTH_INSURANCE: DE_HEALTH_INSURANCE
+    DE_ID_CARD: DE_ID_CARD
+    DE_PASSPORT: DE_PASSPORT
+    DE_FUEHRERSCHEIN: DE_FUEHRERSCHEIN
+    DE_KFZ: DE_KFZ
+    DE_LANR: DE_LANR
+    DE_BSNR: DE_BSNR
+  low_confidence_score_multiplier: 1.0
+  low_score_entity_names: []

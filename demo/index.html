@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tarn German PII Detection</title>
+<style>
+  :root { --surface: #fcfcfb; --card: #ffffff; --ink: #0b0b0b; --muted: #52514e; --line: #e4e3df; --accent: #2a78d6; --mark: #dbe9fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface); color: var(--ink); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 20px 48px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  p.lead { color: var(--muted); margin: 0 0 24px; }
+  a { color: var(--accent); }
+  textarea { width: 100%; min-height: 260px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: var(--card); color: var(--ink); resize: vertical; }
+  .row { display: flex; gap: 12px; align-items: center; margin: 12px 0 28px; flex-wrap: wrap; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 20px; font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { color: var(--muted); font-size: 14px; }
+  h2 { font-size: 17px; margin: 0 0 10px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; white-space: pre-wrap; word-wrap: break-word; min-height: 60px; margin-bottom: 24px; }
+  mark { background: var(--mark); color: var(--ink); border-radius: 4px; padding: 1px 3px; }
+  mark small { font-size: 11px; font-weight: 700; color: var(--accent); margin-left: 4px; letter-spacing: .02em; }
+  footer { color: var(--muted); font-size: 14px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tarn German PII Detection</h1>
+  <p class="lead"><a href="https://huggingface.co/syntriq/tarn-german-pii-base">syntriq/tarn-german-pii-base</a> erkennt 19 Arten personenbezogener Daten in deutschen Texten, darunter Steuer-ID, Krankenversichertennummer, IBAN und Führerscheinnummer. Das Modell läuft vollständig in deinem Browser, der Text verlässt dein Gerät nicht.</p>
+  <textarea id="input" spellcheck="false">Sehr geehrte Frau Schubert,
+
+vielen Dank für Ihre Nachricht. Wir haben Ihre neue Anschrift Lindenallee 14, 04109 Leipzig übernommen und buchen die Beiträge ab dem 1. März von Ihrem Konto DE50 5260 1815 9083 0166 13 ab. Ihre Krankenversichertennummer K118609133 und Ihre Steuer-ID 72659534808 bleiben unverändert.
+
+Bei Rückfragen erreichen Sie Herrn Jonas Albrecht unter 0341 2289441 oder jonas.albrecht@fjordblick-versicherung.de.
+
+Mit freundlichen Grüßen
+Ihre Fjordblick Versicherung</textarea>
+  <div class="row"><button id="run" disabled>Erkennen</button><span id="status">Modell wird geladen (etwa 120 MB, nur beim ersten Mal)…</span></div>
+  <h2>Erkannte personenbezogene Daten</h2>
+  <div class="panel" id="highlighted"></div>
+  <h2>Anonymisiert</h2>
+  <div class="panel" id="masked"></div>
+  <footer>Labels nach Microsoft Presidio. Erkennung ersetzt keine rechtliche Anonymisierung.</footer>
+</main>
+<script type="module">
+import { AutoTokenizer, AutoModelForTokenClassification, Tensor } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2";
+
+const MODEL = "syntriq/tarn-german-pii-base";
+const PIECES = /'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+/gu;
+const run = document.getElementById("run");
+const status = document.getElementById("status");
+const input = document.getElementById("input");
+const tokenizer = await AutoTokenizer.from_pretrained(MODEL);
+const model = await AutoModelForTokenClassification.from_pretrained(MODEL, { dtype: "q8" });
+const labels = model.config.id2label;
+const [bos, eos] = tokenizer.encode("");
+
+async function detect(text) {
+  const ids = [], owners = [];
+  for (const match of text.matchAll(PIECES)) {
+    for (const id of tokenizer.encode(match[0], { add_special_tokens: false })) {
+      ids.push(id);
+      owners.push([match.index, match.index + match[0].length]);
+    }
+  }
+  const predicted = new Array(ids.length).fill("O");
+  for (let start = 0; start < ids.length; start += 382) {
+    const window = ids.slice(start, start + 510);
+    const input_ids = [bos, ...window, eos];
+    const { logits } = await model({ input_ids: tensor(input_ids), attention_mask: tensor(input_ids.map(() => 1)) });
+    const [, length, classes] = logits.dims;
+    for (let position = 1; position < length - 1; position++) {
+      const index = start + position - 1;
+      if (start > 0 && position - 1 < 64) continue;
+      let best = 0;
+      for (let label = 1; label < classes; label++) if (logits.data[position * classes + label] > logits.data[position * classes + best]) best = label;
+      predicted[index] = labels[best];
+    }
+    if (start + 510 >= ids.length) break;
+  }
+  const entities = [];
+  predicted.forEach((tag, index) => {
+    if (tag === "O") return;
+    const [kind, type] = [tag.slice(0, 1), tag.slice(2)];
+    let [begin, end] = owners[index];
+    const value = text.slice(begin, end);
+    begin += value.length - value.trimStart().length;
+    end -= value.length - value.trimEnd().length;
+    const last = entities.at(-1);
+    if (last && last.type === type && (last.end >= begin || (kind === "I" && last.token === index - 1))) Object.assign(last, { end: Math.max(last.end, end), token: index });
+    else if (begin < end) entities.push({ type, start: begin, end, token: index });
+  });
+  return entities.map(({ type, start, end }) => ({ type, start, end }));
+}
+
+function tensor(values) {
+  return new Tensor("int64", BigInt64Array.from(values.map(BigInt)), [1, values.length]);
+}
+
+function escape(text) {
+  return text.replace(/[&<>]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character]);
+}
+
+async function show() {
+  run.disabled = true;
+  status.textContent = "Erkenne…";
+  const text = input.value;
+  const started = performance.now();
+  const entities = await detect(text);
+  let highlighted = "", masked = "", cursor = 0;
+  for (const entity of entities) {
+    highlighted += escape(text.slice(cursor, entity.start)) + `<mark>${escape(text.slice(entity.start, entity.end))}<small>${entity.type}</small></mark>`;
+    masked += escape(text.slice(cursor, entity.start)) + `&lt;${entity.type}&gt;`;
+    cursor = entity.end;
+  }
+  document.getElementById("highlighted").innerHTML = highlighted + escape(text.slice(cursor));
+  document.getElementById("masked").innerHTML = masked + escape(text.slice(cursor));
+  status.textContent = `${entities.length} Fundstellen in ${Math.round(performance.now() - started)} ms`;
+  run.disabled = false;
+}
+
+window.detect = detect;
+run.addEventListener("click", show);
+await show();
+</script>
+</body>
+</html>
